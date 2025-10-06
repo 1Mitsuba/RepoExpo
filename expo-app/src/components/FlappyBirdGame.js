@@ -22,6 +22,12 @@ export default function FlappyBirdGame() {
   const orientationBaseline = useRef(null);
   const ORIENT_ACCEL = 300; // px/s^2 applied from device rotation
 
+  // live-tunable settings (made stateful so user can adjust in UI)
+  const [sensitivity, setSensitivity] = useState(30); // degrees for full effect
+  const [orientAccelScale, setOrientAccelScale] = useState(ORIENT_ACCEL);
+  const [invertControl, setInvertControl] = useState(false);
+  const [baselineAvg, setBaselineAvg] = useState(true);
+
   const [running, setRunning] = useState(false);
   const [pipes, setPipes] = useState([]);
   const pipesRef = useRef(pipes);
@@ -52,8 +58,9 @@ export default function FlappyBirdGame() {
           const alpha = typeof data.rotation.alpha === 'number' ? data.rotation.alpha : 0;
           const alphaDeg = alpha * (180 / Math.PI);
           // On some devices alpha wraps 0..360 (rad), normalize by baseline captured at game start
+          // If baselineAvg is enabled, baseline will be filled by startGame's averaging logic
           if (orientationBaseline.current === null) {
-            // capture a baseline so small resting rotation is treated as zero
+            // fallback: if baseline not captured yet, use this reading as baseline
             orientationBaseline.current = alphaDeg;
           }
           // positive delta means rotated to the right (clockwise looking from top)
@@ -115,8 +122,10 @@ export default function FlappyBirdGame() {
   const orient = orientationRef.current || 0;
   // map orientation to vertical acceleration: positive orient => upward acceleration
   // Note: y increases downward in screen coords, so upward acceleration is negative velocity change
-  const sensitivity = 30; // degrees that produce full effect
-  const orientAccel = (-orient / sensitivity) * ORIENT_ACCEL; // tuned mapping
+  const sens = sensitivity; // degrees that produce full effect
+  const baseAccel = orientAccelScale;
+  const sign = invertControl ? 1 : -1;
+  const orientAccel = sign * (orient / sens) * baseAccel; // tuned mapping
       velocity.current += orientAccel * dt;
       let newY = playerYNumeric.current + velocity.current * dt;
       if (newY > GAME_HEIGHT - PLAYER_SIZE) {
@@ -179,9 +188,38 @@ export default function FlappyBirdGame() {
     };
 
     // start the loop and spawn regardless (we just set running state above)
-    last = Date.now();
-    loopTimer.current = requestAnimationFrame(loop);
-    spawnTimer.current = setInterval(spawnPipe, SPAWN_INTERVAL);
+    // optionally compute baseline average for N readings to stabilize control
+    if (baselineAvg) {
+      // collect readings for ~600ms at 60ms interval
+      const samples = [];
+      let subAvg = null;
+      const avgInterval = 60;
+      DeviceMotion.setUpdateInterval(avgInterval);
+      try {
+        subAvg = DeviceMotion.addListener((data) => {
+          if (!data || !data.rotation) return;
+          const alpha = typeof data.rotation.alpha === 'number' ? data.rotation.alpha : 0;
+          samples.push(alpha * (180 / Math.PI));
+        });
+      } catch (_e) {}
+      // after 600ms compute baseline and continue
+      setTimeout(() => {
+        if (samples.length > 0) {
+          const sum = samples.reduce((a, b) => a + b, 0);
+          orientationBaseline.current = sum / samples.length;
+        } else {
+          orientationBaseline.current = null;
+        }
+        if (subAvg) subAvg.remove();
+        last = Date.now();
+        loopTimer.current = requestAnimationFrame(loop);
+        spawnTimer.current = setInterval(spawnPipe, SPAWN_INTERVAL);
+      }, 600);
+    } else {
+      last = Date.now();
+      loopTimer.current = requestAnimationFrame(loop);
+      spawnTimer.current = setInterval(spawnPipe, SPAWN_INTERVAL);
+    }
   }
 
   function stopGame() {
@@ -247,6 +285,31 @@ export default function FlappyBirdGame() {
           <Text style={styles.hint}>Toca para saltar</Text>
         )}
       </View>
+
+      {/* live tuning controls */}
+      <View style={styles.tuning}>
+        <Text style={styles.tuneLabel}>Sensibilidad: {sensitivity}°</Text>
+        <View style={styles.tuneRow}>
+          <Text onPress={() => setSensitivity(s => Math.max(5, s - 5))} style={styles.tuneBtn}>-</Text>
+          <Text onPress={() => setSensitivity(s => s + 5)} style={styles.tuneBtn}>+</Text>
+        </View>
+
+        <Text style={styles.tuneLabel}>Fuerza: {orientAccelScale}</Text>
+        <View style={styles.tuneRow}>
+          <Text onPress={() => setOrientAccelScale(v => Math.max(50, v - 50))} style={styles.tuneBtn}>-</Text>
+          <Text onPress={() => setOrientAccelScale(v => v + 50)} style={styles.tuneBtn}>+</Text>
+        </View>
+
+        <View style={styles.tuneRow}> 
+          <Text style={styles.tuneLabel}>Invertir control:</Text>
+          <Text onPress={() => setInvertControl(ic => !ic)} style={[styles.tuneBtn, invertControl ? styles.btnActive : null]}>{invertControl ? 'ON' : 'OFF'}</Text>
+        </View>
+
+        <View style={styles.tuneRow}> 
+          <Text style={styles.tuneLabel}>Baseline Avg:</Text>
+          <Text onPress={() => setBaselineAvg(b => !b)} style={[styles.tuneBtn, baselineAvg ? styles.btnActive : null]}>{baselineAvg ? 'ON' : 'OFF'}</Text>
+        </View>
+      </View>
     </View>
   );
 }
@@ -258,6 +321,11 @@ const styles = StyleSheet.create({
   rotationText: { fontSize: 12, fontWeight: '700' },
   rotBarBg: { height: 6, backgroundColor: '#eee', borderRadius: 4, marginTop: 4, overflow: 'hidden' },
   rotBarFill: { height: 6, backgroundColor: '#1976d2' },
+  tuning: { paddingHorizontal: 12, paddingVertical: 8 },
+  tuneLabel: { fontSize: 14, fontWeight: '700', marginBottom: 6 },
+  tuneRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  tuneBtn: { paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#eee', borderRadius: 6, marginHorizontal: 6 },
+  btnActive: { backgroundColor: '#1976d2', color: '#fff' },
   player: { position: 'absolute', backgroundColor: '#ffcc00', borderWidth: 2, borderColor: '#c98f00' },
   pipeTop: { position: 'absolute', backgroundColor: '#2e7d32', top: 0 },
   pipeBottom: { position: 'absolute', backgroundColor: '#2e7d32' },
