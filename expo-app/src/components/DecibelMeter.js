@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Platform, Animated } from 'react-native';
+import { View, Text, StyleSheet, Animated } from 'react-native';
 import { Audio } from 'expo-av';
 
 // Convierte meteringLevel (dB, rango -inf..0) a valor entre -60 y 0
@@ -45,12 +45,12 @@ export default function DecibelMeter() {
               const ratio = (level + 60) / 60; // 0..1
               Animated.timing(animated, { toValue: ratio, duration: 80, useNativeDriver: false }).start();
             }
-          } catch (e) {
+          } catch (_e) {
             // ignore
           }
         }, 100);
-      } catch (e) {
-        console.warn('DecibelMeter init failed', e);
+      } catch (_e) {
+        console.warn('DecibelMeter init failed', _e);
       }
     })();
 
@@ -63,19 +63,22 @@ export default function DecibelMeter() {
             await recordingRef.current.stopAndUnloadAsync();
             recordingRef.current = null;
           }
-        } catch (e) {}
+        } catch (_e) {}
       })();
     };
-  }, []);
+  }, [animated]);
 
   const width = animated.interpolate({
     inputRange: [0, 1],
     outputRange: ['0%', '100%'],
   });
 
+  // display the magnitude (positive) so users see e.g. '-10 dB' as '10 dB'
+  const displayDb = Math.round(Math.abs(dB));
+
   return (
     <View>
-      <Text style={styles.dbText}>Nivel: {Math.round(dB)} dB</Text>
+      <Text style={styles.dbText}>Nivel: {displayDb} dB</Text>
       <View style={styles.barBg}>
         <Animated.View style={[styles.barFill, { width }]} />
       </View>

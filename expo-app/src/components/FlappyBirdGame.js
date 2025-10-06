@@ -19,6 +19,7 @@ export default function FlappyBirdGame() {
   const gravity = 0.45; // pixels per tick^2
   const jumpImpulse = -9.5;
   const orientationRef = useRef(0); // degrees
+  const orientationBaseline = useRef(null);
   const ORIENT_ACCEL = 300; // px/s^2 applied from device rotation
 
   const [running, setRunning] = useState(false);
@@ -37,8 +38,8 @@ export default function FlappyBirdGame() {
 
   // DeviceMotion-based orientation control (use device rotation/giro)
   useEffect(() => {
-  let sub = null;
-  const interval = 60;
+    let sub = null;
+    const interval = 60;
 
     const startDeviceMotion = async () => {
       try {
@@ -46,22 +47,37 @@ export default function FlappyBirdGame() {
         sub = DeviceMotion.addListener((data) => {
           if (!running) return;
           if (!data || !data.rotation) return;
-          const gamma = data.rotation.gamma || 0; // roll (radians)
-          const gammaDeg = gamma * (180 / Math.PI);
-          // store orientation continuously (degrees)
-          orientationRef.current = gammaDeg;
+          // Use rotation.alpha (yaw) for true "giro"/rotación alrededor del eje Z
+          // alpha is in radians; convert to degrees
+          const alpha = typeof data.rotation.alpha === 'number' ? data.rotation.alpha : 0;
+          const alphaDeg = alpha * (180 / Math.PI);
+          // On some devices alpha wraps 0..360 (rad), normalize by baseline captured at game start
+          if (orientationBaseline.current === null) {
+            // capture a baseline so small resting rotation is treated as zero
+            orientationBaseline.current = alphaDeg;
+          }
+          // positive delta means rotated to the right (clockwise looking from top)
+          let delta = alphaDeg - orientationBaseline.current;
+          // normalize to -180..180
+          if (delta > 180) delta -= 360;
+          if (delta < -180) delta += 360;
+          orientationRef.current = delta;
         });
       } catch (_e) {
         // ignore if not available
       }
     };
 
-    if (running) startDeviceMotion();
+    if (running) {
+      // reset baseline when starting the game so neutral orientation is the current phone pose
+      orientationBaseline.current = null;
+      startDeviceMotion();
+    }
 
     return () => {
       if (sub) sub.remove();
     };
-  }, [running, doJump]);
+  }, [running]);
 
   // keep numeric player position updated
   useEffect(() => {
@@ -95,10 +111,12 @@ export default function FlappyBirdGame() {
       // integrate physics (velocity in px/sec)
       // apply gravity
       velocity.current += gravity * dt;
-      // orientation control: orientationRef.current in degrees; positive = rotate right -> move up
-      const orient = orientationRef.current || 0;
-      // map orientation to acceleration: positive orient => upward acceleration
-      const orientAccel = (-orient / 30) * ORIENT_ACCEL; // tuned mapping
+  // orientation control: orientationRef.current in degrees; positive = rotated right
+  const orient = orientationRef.current || 0;
+  // map orientation to vertical acceleration: positive orient => upward acceleration
+  // Note: y increases downward in screen coords, so upward acceleration is negative velocity change
+  const sensitivity = 30; // degrees that produce full effect
+  const orientAccel = (-orient / sensitivity) * ORIENT_ACCEL; // tuned mapping
       velocity.current += orientAccel * dt;
       let newY = playerYNumeric.current + velocity.current * dt;
       if (newY > GAME_HEIGHT - PLAYER_SIZE) {
