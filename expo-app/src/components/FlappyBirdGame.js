@@ -10,8 +10,8 @@ export default function FlappyBirdGame() {
   const PLAYER_SIZE = 36;
   const PIPE_WIDTH = PLAYER_SIZE; // make pipes roughly the same width as the player for better fairness
   const GAP = 140; // gap between pipes
-  const SPAWN_INTERVAL = 2000; // ms (slower spawn)
-  const PIPE_SPEED = 120; // px per second (slower movement)
+  const SPAWN_INTERVAL = 1600; // ms
+  const PIPE_SPEED = 180; // px per second
 
   const playerY = useRef(new Animated.Value(GAME_HEIGHT / 2)).current;
   const playerYNumeric = useRef(GAME_HEIGHT / 2);
@@ -102,6 +102,9 @@ export default function FlappyBirdGame() {
     velocity.current = 0;
     playerY.setValue(GAME_HEIGHT / 2);
     playerYNumeric.current = GAME_HEIGHT / 2;
+    // clear orientation so next run starts neutral
+    orientationRef.current = 0;
+    orientationBaseline.current = null;
   }
 
   function startGame() {
@@ -227,6 +230,9 @@ export default function FlappyBirdGame() {
     if (loopTimer.current) { cancelAnimationFrame(loopTimer.current); loopTimer.current = null; }
     if (spawnTimer.current) { clearInterval(spawnTimer.current); spawnTimer.current = null; }
     // play collision sound
+    // clear orientation when game stops to avoid jumpy state
+    orientationRef.current = 0;
+    orientationBaseline.current = null;
     (async () => {
       try {
         const { sound } = await Audio.Sound.createAsync(require('../assets/sounds/collision.wav'));
