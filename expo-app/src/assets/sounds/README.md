@@ -1,0 +1,2 @@
+Coloque aquí archivos .mp3: start.mp3, collision.mp3, victory.mp3
+Puedes obtener sonidos libres de derechos y colocarlos en esta carpeta. Referenciados en el código mediante require('../assets/sounds/collision.mp3') etc.
