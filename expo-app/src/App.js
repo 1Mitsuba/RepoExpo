@@ -1,8 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { SafeAreaView, StyleSheet, Platform, Text, View } from 'react-native';
+import { SafeAreaView, StyleSheet, View, Text, Platform } from 'react-native';
 import * as Permissions from 'expo-permissions';
 import { Audio } from 'expo-av';
+import { NavigationContainer } from '@react-navigation/native';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import HomeScreen from './screens/HomeScreen';
+import GameScreen from './screens/GameScreen';
+
+const Tab = createBottomTabNavigator();
 
 export default function App() {
   const [permissionsOk, setPermissionsOk] = useState({ mic: false, motion: false });
@@ -10,17 +15,12 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        // Solicita permiso de micrófono
         const audioRes = await Audio.requestPermissionsAsync();
-        // También intentamos pedir permiso de motion (iOS) mediante expo-permissions si está disponible
         let motionRes = { status: 'undetermined' };
         try {
-          // expo-permissions todavía expone PERMISSIONS constants
           const motion = await Permissions.askAsync(Permissions.MOTION);
           motionRes = motion;
-        } catch (e) {
-          // ignore si no está disponible
-        }
+        } catch (e) {}
         setPermissionsOk({ mic: audioRes.status === 'granted', motion: motionRes.status === 'granted' });
       } catch (e) {
         console.warn('Error solicitando permisos', e);
@@ -29,20 +29,20 @@ export default function App() {
   }, []);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <NavigationContainer>
       {!permissionsOk.mic && (
         <View style={{ backgroundColor: '#fff3cd', padding: 8 }}>
           <Text>Permiso de micrófono no otorgado. Algunas funciones pueden no funcionar.</Text>
         </View>
       )}
-      <HomeScreen />
-    </SafeAreaView>
+      <Tab.Navigator>
+        <Tab.Screen name="Home" component={HomeScreen} />
+        <Tab.Screen name="Game" component={GameScreen} />
+      </Tab.Navigator>
+    </NavigationContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f7f7f7',
-  },
+  container: { flex: 1, backgroundColor: '#f7f7f7' },
 });

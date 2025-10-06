@@ -1,7 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, Button } from 'react-native';
 import StepCounter from '../components/StepCounter';
-import FlappyBirdGame from '../components/FlappyBirdGame';
 import DecibelMeter from '../components/DecibelMeter';
 import DirectionDetector from '../components/DirectionDetector';
 
@@ -16,8 +15,8 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Juego (Flappy Bird simple)</Text>
-        <FlappyBirdGame />
+        <Text style={styles.cardTitle}>Juego (abre la pestaña "Game")</Text>
+        <Text>Para una experiencia completa, abre la pestaña "Game" en la parte inferior.</Text>
       </View>
 
       <View style={styles.card}>
