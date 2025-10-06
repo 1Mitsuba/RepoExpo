@@ -8,7 +8,7 @@ const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 export default function FlappyBirdGame() {
   const GAME_HEIGHT = Math.round(SCREEN_H * 0.6);
   const PLAYER_SIZE = 36;
-  const PIPE_WIDTH = 64;
+  const PIPE_WIDTH = PLAYER_SIZE; // make pipes roughly the same width as the player for better fairness
   const GAP = 140; // gap between pipes
   const SPAWN_INTERVAL = 1600; // ms
   const PIPE_SPEED = 180; // px per second
@@ -20,10 +20,10 @@ export default function FlappyBirdGame() {
   const jumpImpulse = -9.5;
   const orientationRef = useRef(0); // degrees
   const orientationBaseline = useRef(null);
-  const ORIENT_ACCEL = 300; // px/s^2 applied from device rotation
+  const ORIENT_ACCEL = 900; // px/s^2 applied from device rotation (higher default for snappier control)
 
   // live-tunable settings (made stateful so user can adjust in UI)
-  const [sensitivity, setSensitivity] = useState(30); // degrees for full effect
+  const [sensitivity, setSensitivity] = useState(18); // degrees for full effect (lower = more sensitive)
   const [orientAccelScale, setOrientAccelScale] = useState(ORIENT_ACCEL);
   const [invertControl, setInvertControl] = useState(false);
   const [baselineAvg, setBaselineAvg] = useState(true);
