@@ -73,8 +73,8 @@ export default function DecibelMeter() {
     outputRange: ['0%', '100%'],
   });
 
-  // display the magnitude (positive) so users see e.g. '-10 dB' as '10 dB'
-  const displayDb = Math.round(Math.abs(dB));
+  // map internal level (-60..0) -> display 0..60 where 0 = silence, 60 = 0 dB (loud)
+  const displayDb = Math.round(dB + 60);
 
   return (
     <View>

@@ -1,24 +1,36 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { subscribeAccelerometer, isAccelerometerAvailable } from '../utils/sensors';
+import { DeviceMotion } from 'expo-sensors';
 
 export default function DirectionDetector() {
   const [dir, setDir] = useState('Estático');
+  const baseline = useRef(null);
 
   useEffect(() => {
-    let unsubscribe = null;
-    (async () => {
-      const available = await isAccelerometerAvailable();
-      if (!available) return;
-      unsubscribe = subscribeAccelerometer(({ x }) => {
-        const threshold = 0.15; // ajustar
-        if (x > threshold) setDir('Derecha');
-        else if (x < -threshold) setDir('Izquierda');
+    let sub = null;
+    const interval = 80;
+    DeviceMotion.setUpdateInterval(interval);
+    try {
+      sub = DeviceMotion.addListener((data) => {
+        if (!data || !data.rotation) return;
+        const alpha = typeof data.rotation.alpha === 'number' ? data.rotation.alpha : 0;
+        const alphaDeg = alpha * (180 / Math.PI);
+        if (baseline.current === null) {
+          baseline.current = alphaDeg;
+        }
+        let delta = alphaDeg - baseline.current;
+        if (delta > 180) delta -= 360;
+        if (delta < -180) delta += 360;
+        const thresh = 8; // degrees
+        if (delta > thresh) setDir('Derecha');
+        else if (delta < -thresh) setDir('Izquierda');
         else setDir('Estático');
-      }, 100);
-    })();
+      });
+    } catch (_e) {}
 
-    return () => unsubscribe && unsubscribe();
+    return () => {
+      if (sub) sub.remove();
+    };
   }, []);
 
   return (

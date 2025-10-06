@@ -218,6 +218,13 @@ export default function FlappyBirdGame() {
       <Text style={styles.score}>Puntuación: {score}</Text>
       <TouchableWithoutFeedback onPress={() => (running ? doJump() : startGame())}>
         <View style={[styles.gameArea, { height: GAME_HEIGHT }]}>
+          {/* rotation indicator */}
+          <View style={styles.rotationIndicator} pointerEvents="none">
+            <Text style={styles.rotationText}>Giro: {Math.round(orientationRef.current)}°</Text>
+            <View style={styles.rotBarBg}>
+              <View style={[styles.rotBarFill, { width: `${Math.min(100, Math.abs(Math.round(orientationRef.current))) * 1}%` }]} />
+            </View>
+          </View>
           {/* player */}
           <Animated.View
             style={[styles.player, { top: playerY, left: 40, width: PLAYER_SIZE, height: PLAYER_SIZE, borderRadius: PLAYER_SIZE / 2 }]}
@@ -247,6 +254,10 @@ export default function FlappyBirdGame() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   gameArea: { backgroundColor: '#d9f0ff', margin: 12, borderRadius: 6, overflow: 'hidden' },
+  rotationIndicator: { position: 'absolute', left: 8, top: 8, zIndex: 20, backgroundColor: 'rgba(255,255,255,0.8)', padding: 6, borderRadius: 6 },
+  rotationText: { fontSize: 12, fontWeight: '700' },
+  rotBarBg: { height: 6, backgroundColor: '#eee', borderRadius: 4, marginTop: 4, overflow: 'hidden' },
+  rotBarFill: { height: 6, backgroundColor: '#1976d2' },
   player: { position: 'absolute', backgroundColor: '#ffcc00', borderWidth: 2, borderColor: '#c98f00' },
   pipeTop: { position: 'absolute', backgroundColor: '#2e7d32', top: 0 },
   pipeBottom: { position: 'absolute', backgroundColor: '#2e7d32' },
