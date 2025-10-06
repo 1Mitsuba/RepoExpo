@@ -18,6 +18,8 @@ export default function FlappyBirdGame() {
   const velocity = useRef(0);
   const gravity = 0.45; // pixels per tick^2
   const jumpImpulse = -9.5;
+  const orientationRef = useRef(0); // degrees
+  const ORIENT_ACCEL = 300; // px/s^2 applied from device rotation
 
   const [running, setRunning] = useState(false);
   const [pipes, setPipes] = useState([]);
@@ -25,7 +27,6 @@ export default function FlappyBirdGame() {
   const [score, setScore] = useState(0);
   const spawnTimer = useRef(null);
   const loopTimer = useRef(null); // will store RAF id
-  const accelCooldown = useRef(0);
 
   // keep pipesRef in sync with pipes state
   useEffect(() => {
@@ -36,9 +37,8 @@ export default function FlappyBirdGame() {
 
   // DeviceMotion-based orientation control (use device rotation/giro)
   useEffect(() => {
-    let sub = null;
-    const thresholdDeg = 12; // degrees to trigger
-    const interval = 60;
+  let sub = null;
+  const interval = 60;
 
     const startDeviceMotion = async () => {
       try {
@@ -46,37 +46,10 @@ export default function FlappyBirdGame() {
         sub = DeviceMotion.addListener((data) => {
           if (!running) return;
           if (!data || !data.rotation) return;
-          const now = Date.now();
           const gamma = data.rotation.gamma || 0; // roll (radians)
-          const beta = data.rotation.beta || 0; // pitch (radians)
           const gammaDeg = gamma * (180 / Math.PI);
-          const betaDeg = beta * (180 / Math.PI);
-
-          // Prefer roll (gamma) for right/left device rotation control.
-          // Right rotation -> positive gammaDeg -> jump
-          if (gammaDeg > thresholdDeg && now - accelCooldown.current > 300) {
-            doJump();
-            accelCooldown.current = now;
-            return;
-          }
-
-          // Left rotation -> negative gammaDeg -> quick drop
-          if (gammaDeg < -thresholdDeg && now - accelCooldown.current > 300) {
-            velocity.current += 6;
-            accelCooldown.current = now;
-            return;
-          }
-
-          // As fallback, if device is pitched strongly forward/back (beta), apply small adjustments
-          if (betaDeg > 20 && now - accelCooldown.current > 400) {
-            // pitched forward -> go down
-            velocity.current += 4;
-            accelCooldown.current = now;
-          } else if (betaDeg < -20 && now - accelCooldown.current > 400) {
-            // pitched back -> small jump
-            doJump();
-            accelCooldown.current = now;
-          }
+          // store orientation continuously (degrees)
+          orientationRef.current = gammaDeg;
         });
       } catch (_e) {
         // ignore if not available
@@ -120,7 +93,13 @@ export default function FlappyBirdGame() {
       last = now;
 
       // integrate physics (velocity in px/sec)
+      // apply gravity
       velocity.current += gravity * dt;
+      // orientation control: orientationRef.current in degrees; positive = rotate right -> move up
+      const orient = orientationRef.current || 0;
+      // map orientation to acceleration: positive orient => upward acceleration
+      const orientAccel = (-orient / 30) * ORIENT_ACCEL; // tuned mapping
+      velocity.current += orientAccel * dt;
       let newY = playerYNumeric.current + velocity.current * dt;
       if (newY > GAME_HEIGHT - PLAYER_SIZE) {
         newY = GAME_HEIGHT - PLAYER_SIZE;
