@@ -116,7 +116,8 @@ export default function FlappyBirdGame() {
     setRunning(false);
     // play collision sound if available
     try {
-      const { sound } = await Audio.Sound.createAsync(require('../assets/sounds/collision.mp3'));
+      // usamos WAVs generados por el script (start.wav, collision.wav, victory.wav)
+      const { sound } = await Audio.Sound.createAsync(require('../assets/sounds/collision.wav'));
       await sound.playAsync();
     } catch (e) {}
   }
