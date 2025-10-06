@@ -1,0 +1,49 @@
+### Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+pnpm-lock.yaml
+
+### Expo / React Native
+.expo/
+.expo-shared/
+android/
+ios/
+web-build/
+*.keystore
+
+### Build/packager
+/dist
+/build
+/ios/build
+android/app/build
+android/.gradle
+android/.idea
+
+### Metro / cache
+.expo-cache
+.metro-cache
+*.db
+.packager-cache
+
+### IDEs and OS files
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+.DS_Store
+Thumbs.db
+
+### Env files and secrets (keep out of repo)
+.env
+.env.*
+secrets.json
+
+### Logs
+*.log
+
+### Generated sound artifacts if you don't want to commit them (optional)
+# src/assets/sounds/*.wav
+# src/assets/sounds/*.mp3
