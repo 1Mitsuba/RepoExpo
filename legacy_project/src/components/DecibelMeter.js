@@ -1,0 +1,13 @@
+```javascript
+import React from 'react';
+import { View, Text } from 'react-native';
+
+export default function DecibelMeter() {
+  return (
+    <View>
+      <Text>DecibelMeter (legacy)</Text>
+    </View>
+  );
+}
+
+```

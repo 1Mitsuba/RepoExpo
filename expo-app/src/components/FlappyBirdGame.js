@@ -10,6 +10,8 @@ export default function FlappyBirdGame() {
   const PLAYER_SIZE = 36;
   const PIPE_WIDTH = 64;
   const GAP = 140; // gap between pipes
+  const SPAWN_INTERVAL = 1600; // ms
+  const PIPE_SPEED = 180; // px per second
 
   const playerY = useRef(new Animated.Value(GAME_HEIGHT / 2)).current;
   const playerYNumeric = useRef(GAME_HEIGHT / 2);
@@ -18,11 +20,17 @@ export default function FlappyBirdGame() {
   const jumpImpulse = -9.5;
 
   const [running, setRunning] = useState(false);
-  const obstacles = useRef([]);
+  const [pipes, setPipes] = useState([]);
+  const pipesRef = useRef(pipes);
   const [score, setScore] = useState(0);
   const spawnTimer = useRef(null);
-  const loopTimer = useRef(null);
+  const loopTimer = useRef(null); // will store RAF id
   const accelCooldown = useRef(0);
+
+  // keep pipesRef in sync with pipes state
+  useEffect(() => {
+    pipesRef.current = pipes;
+  }, [pipes]);
 
   // accelerometer for optional jump
   useEffect(() => {
@@ -51,11 +59,11 @@ export default function FlappyBirdGame() {
   }, []);
 
   function resetGame() {
-    // clear obstacles
-    obstacles.current.forEach(o => {
-      try { if (o.x && o.unsubscribe) o.unsubscribe(); } catch (e) {}
+    // clear pipes
+    pipesRef.current.forEach(o => {
+      try { if (o.x && o.unsubscribe) o.unsubscribe(); } catch (_e) {}
     });
-    obstacles.current = [];
+    setPipes([]);
     setScore(0);
     velocity.current = 0;
     playerY.setValue(GAME_HEIGHT / 2);
@@ -66,11 +74,16 @@ export default function FlappyBirdGame() {
     resetGame();
     setRunning(true);
 
-    // main physics loop ~60fps
-    loopTimer.current = setInterval(() => {
-      // integrate
-      velocity.current += gravity;
-      let newY = playerYNumeric.current + velocity.current;
+    // physics + rendering loop using requestAnimationFrame for smooth movement
+    let last = Date.now();
+    const loop = () => {
+      const now = Date.now();
+      const dt = (now - last) / 1000; // seconds
+      last = now;
+
+      // integrate physics (velocity in px/sec)
+      velocity.current += gravity * dt;
+      let newY = playerYNumeric.current + velocity.current * dt;
       if (newY > GAME_HEIGHT - PLAYER_SIZE) {
         newY = GAME_HEIGHT - PLAYER_SIZE;
         velocity.current = 0;
@@ -81,61 +94,71 @@ export default function FlappyBirdGame() {
       }
       playerY.setValue(newY);
 
-      // move obstacles and collision
-      for (let i = obstacles.current.length - 1; i >= 0; i--) {
-        const o = obstacles.current[i];
-        o.xNumeric -= 3.2; // speed
+      // move pipes
+      const toRemoveIds = [];
+      const pipesNow = pipesRef.current.slice();
+      for (let i = 0; i < pipesNow.length; i++) {
+        const o = pipesNow[i];
+        o.xNumeric -= PIPE_SPEED * dt;
         o.x.setValue(o.xNumeric);
 
-        // check for scoring when passed player
+        // scoring
         if (!o.passed && o.xNumeric + PIPE_WIDTH < 40) {
           o.passed = true;
           setScore(s => s + 1);
         }
 
-        // collision check: player's box
+        // collision
         const px = 40;
         const py = playerYNumeric.current;
         const pw = PLAYER_SIZE;
         const ph = PLAYER_SIZE;
-
         const ox = o.xNumeric;
         const gapTop = o.top;
-        // top pipe rect
         const tRect = { x: ox, y: 0, w: PIPE_WIDTH, h: gapTop };
         const bRect = { x: ox, y: gapTop + GAP, w: PIPE_WIDTH, h: GAME_HEIGHT - (gapTop + GAP) };
-
         if (rectsIntersect({ x: px, y: py, w: pw, h: ph }, tRect) || rectsIntersect({ x: px, y: py, w: pw, h: ph }, bRect)) {
-          // collision
           stopGame();
+          return; // stop loop early
         }
 
-        // remove off-screen obstacles
-        if (o.xNumeric < -PIPE_WIDTH) {
-          obstacles.current.splice(i, 1);
+        if (o.xNumeric < -PIPE_WIDTH - 20) {
+          toRemoveIds.push(o.id);
         }
       }
-    }, 16);
 
-    // spawn pipes every 1600ms
-    spawnTimer.current = setInterval(() => {
+      if (toRemoveIds.length > 0) {
+        setPipes(prev => prev.filter(p => !toRemoveIds.includes(p.id)));
+      }
+
+      loopTimer.current = requestAnimationFrame(loop);
+    };
+
+    // spawn function: create pipe off-screen to the right
+    const spawnPipe = () => {
       const top = 40 + Math.random() * (GAME_HEIGHT - GAP - 80);
-      const obs = { x: new Animated.Value(SCREEN_W), xNumeric: SCREEN_W, top, id: Date.now(), passed: false };
+      const startX = SCREEN_W + PIPE_WIDTH + 20;
+      const obs = { x: new Animated.Value(startX), xNumeric: startX, top, id: Date.now() + Math.random(), passed: false };
       obs.unsubscribe = obs.x.addListener(({ value }) => (obs.xNumeric = value));
-      obstacles.current.push(obs);
-    }, 1600);
+      setPipes(prev => [...prev, obs]);
+    };
+
+    // start the loop and spawn regardless (we just set running state above)
+    last = Date.now();
+    loopTimer.current = requestAnimationFrame(loop);
+    spawnTimer.current = setInterval(spawnPipe, SPAWN_INTERVAL);
   }
 
   function stopGame() {
     setRunning(false);
-    if (loopTimer.current) { clearInterval(loopTimer.current); loopTimer.current = null; }
+    if (loopTimer.current) { cancelAnimationFrame(loopTimer.current); loopTimer.current = null; }
     if (spawnTimer.current) { clearInterval(spawnTimer.current); spawnTimer.current = null; }
     // play collision sound
     (async () => {
       try {
         const { sound } = await Audio.Sound.createAsync(require('../assets/sounds/collision.wav'));
         await sound.playAsync();
-      } catch (e) {}
+      } catch (_e) {}
     })();
   }
 
@@ -150,7 +173,7 @@ export default function FlappyBirdGame() {
   // teardown
   useEffect(() => {
     return () => {
-      if (loopTimer.current) clearInterval(loopTimer.current);
+      if (loopTimer.current) cancelAnimationFrame(loopTimer.current);
       if (spawnTimer.current) clearInterval(spawnTimer.current);
     };
   }, []);
@@ -166,7 +189,7 @@ export default function FlappyBirdGame() {
           />
 
           {/* pipes */}
-          {obstacles.current.map(o => (
+          {pipes.map(o => (
             <React.Fragment key={o.id}>
               <Animated.View style={[styles.pipeTop, { left: o.x, height: o.top, width: PIPE_WIDTH }]} />
               <Animated.View style={[styles.pipeBottom, { left: o.x, top: o.top + GAP, width: PIPE_WIDTH }]} />
