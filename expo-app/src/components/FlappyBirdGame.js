@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, Animated, Dimensions, TouchableWithoutFeedback } from 'react-native';
-import { DeviceMotion } from 'expo-sensors';
+import { DeviceMotion, Accelerometer } from 'expo-sensors';
 import { Audio } from 'expo-av';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
@@ -27,6 +27,9 @@ export default function FlappyBirdGame() {
   const [orientAccelScale, setOrientAccelScale] = useState(ORIENT_ACCEL);
   const [invertControl, setInvertControl] = useState(false);
   const [baselineAvg, setBaselineAvg] = useState(true);
+  const [shakeToJump, setShakeToJump] = useState(false);
+  const shakeCooldownRef = useRef(false);
+  const accelSubRef = useRef(null);
 
   const [running, setRunning] = useState(false);
   const [pipes, setPipes] = useState([]);
@@ -223,6 +226,23 @@ export default function FlappyBirdGame() {
       loopTimer.current = requestAnimationFrame(loop);
       spawnTimer.current = setInterval(spawnPipe, SPAWN_INTERVAL);
     }
+
+    // start accelerometer shake listener if enabled
+    if (shakeToJump) {
+      try {
+        Accelerometer.setUpdateInterval(100);
+        accelSubRef.current = Accelerometer.addListener(({ x, y, z }) => {
+          const magnitude = Math.sqrt(x * x + y * y + z * z);
+          // typical gravity ~1, detect spikes above threshold
+          if (magnitude > 1.9 && !shakeCooldownRef.current) {
+            // trigger jump
+            doJump();
+            shakeCooldownRef.current = true;
+            setTimeout(() => (shakeCooldownRef.current = false), 600);
+          }
+        });
+      } catch (_e) {}
+    }
   }
 
   function stopGame() {
@@ -239,6 +259,8 @@ export default function FlappyBirdGame() {
         await sound.playAsync();
       } catch (_e) {}
     })();
+    // stop accel listener
+    try { if (accelSubRef.current) { accelSubRef.current.remove(); accelSubRef.current = null; } } catch (_e) {}
   }
 
   const doJump = useCallback(() => {
@@ -314,6 +336,10 @@ export default function FlappyBirdGame() {
         <View style={styles.tuneRow}> 
           <Text style={styles.tuneLabel}>Baseline Avg:</Text>
           <Text onPress={() => setBaselineAvg(b => !b)} style={[styles.tuneBtn, baselineAvg ? styles.btnActive : null]}>{baselineAvg ? 'ON' : 'OFF'}</Text>
+        </View>
+        <View style={styles.tuneRow}> 
+          <Text style={styles.tuneLabel}>Shake to Jump:</Text>
+          <Text onPress={() => setShakeToJump(s => !s)} style={[styles.tuneBtn, shakeToJump ? styles.btnActive : null]}>{shakeToJump ? 'ON' : 'OFF'}</Text>
         </View>
       </View>
     </View>
