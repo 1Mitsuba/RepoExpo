@@ -30,6 +30,10 @@ export default function FlappyBirdGame() {
   const [shakeToJump, setShakeToJump] = useState(false);
   const shakeCooldownRef = useRef(false);
   const accelSubRef = useRef(null);
+  const [flickToJump, setFlickToJump] = useState(false);
+  const flickCooldownRef = useRef(false);
+  const lastAlphaRef = useRef(null);
+  const lastAlphaTimeRef = useRef(null);
 
   const [running, setRunning] = useState(false);
   const [pipes, setPipes] = useState([]);
@@ -72,6 +76,29 @@ export default function FlappyBirdGame() {
           if (delta > 180) delta -= 360;
           if (delta < -180) delta += 360;
           orientationRef.current = delta;
+
+          // compute angular velocity (deg/s) for quick-rotation detection
+          try {
+            const now = Date.now();
+            if (lastAlphaRef.current !== null && lastAlphaTimeRef.current) {
+              const dt = (now - lastAlphaTimeRef.current) / 1000; // seconds
+              if (dt > 0) {
+                // raw delta between consecutive alpha readings
+                let rawDelta = alphaDeg - lastAlphaRef.current;
+                if (rawDelta > 180) rawDelta -= 360;
+                if (rawDelta < -180) rawDelta += 360;
+                const angVel = rawDelta / dt; // deg/s
+                const angThreshold = 220; // deg/s to trigger flick
+                if (flickToJump && !flickCooldownRef.current && Math.abs(angVel) > angThreshold) {
+                  doJump();
+                  flickCooldownRef.current = true;
+                  setTimeout(() => (flickCooldownRef.current = false), 600);
+                }
+              }
+            }
+            lastAlphaRef.current = alphaDeg;
+            lastAlphaTimeRef.current = now;
+          } catch (_e) {}
         });
       } catch (_e) {
         // ignore if not available
@@ -86,8 +113,10 @@ export default function FlappyBirdGame() {
 
     return () => {
       if (sub) sub.remove();
+      lastAlphaRef.current = null;
+      lastAlphaTimeRef.current = null;
     };
-  }, [running]);
+  }, [running, doJump, flickToJump]);
 
   // keep numeric player position updated
   useEffect(() => {
@@ -340,6 +369,10 @@ export default function FlappyBirdGame() {
         <View style={styles.tuneRow}> 
           <Text style={styles.tuneLabel}>Shake to Jump:</Text>
           <Text onPress={() => setShakeToJump(s => !s)} style={[styles.tuneBtn, shakeToJump ? styles.btnActive : null]}>{shakeToJump ? 'ON' : 'OFF'}</Text>
+        </View>
+        <View style={styles.tuneRow}> 
+          <Text style={styles.tuneLabel}>Flick to Jump:</Text>
+          <Text onPress={() => setFlickToJump(f => !f)} style={[styles.tuneBtn, flickToJump ? styles.btnActive : null]}>{flickToJump ? 'ON' : 'OFF'}</Text>
         </View>
       </View>
     </View>
