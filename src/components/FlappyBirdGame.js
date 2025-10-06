@@ -1,151 +1,198 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, Button, StyleSheet, Animated, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Animated, Dimensions, TouchableWithoutFeedback } from 'react-native';
 import { subscribeAccelerometer, isAccelerometerAvailable } from '../utils/sensors';
 import { Audio } from 'expo-av';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 export default function FlappyBirdGame() {
-  const playerY = useRef(new Animated.Value(SCREEN_H / 2)).current;
+  const GAME_HEIGHT = Math.round(SCREEN_H * 0.6);
+  const PLAYER_SIZE = 36;
+  const PIPE_WIDTH = 64;
+  const GAP = 140; // gap between pipes
+
+  const playerY = useRef(new Animated.Value(GAME_HEIGHT / 2)).current;
+  const playerYNumeric = useRef(GAME_HEIGHT / 2);
+  const velocity = useRef(0);
+  const gravity = 0.45; // pixels per tick^2
+  const jumpImpulse = -9.5;
+
   const [running, setRunning] = useState(false);
   const obstacles = useRef([]);
-  const [tick, setTick] = useState(0);
-  const gameLoopRef = useRef(null);
   const [score, setScore] = useState(0);
-  const playerYNumeric = useRef(SCREEN_H / 2);
+  const spawnTimer = useRef(null);
+  const loopTimer = useRef(null);
+  const accelCooldown = useRef(0);
 
+  // accelerometer for optional jump
   useEffect(() => {
     let unsubscribe = null;
     (async () => {
-      const available = await isAccelerometerAvailable();
-      if (!available) return;
+      const avail = await isAccelerometerAvailable();
+      if (!avail) return;
       unsubscribe = subscribeAccelerometer(({ x, y, z }) => {
-        // eje Y: inclinar hacia arriba -> se considera salto
+        // tilt upward (y negative) triggers a jump if running
         if (!running) return;
-        if (y < -0.8) {
-          // salto
-          Animated.timing(playerY, { toValue: Math.max(60, playerYNumeric.current - 80), duration: 120, useNativeDriver: false }).start();
+        const now = Date.now();
+        if (y < -0.9 && now - accelCooldown.current > 400) {
+          doJump();
+          accelCooldown.current = now;
         }
-      }, 50);
+      }, 60);
     })();
 
     return () => unsubscribe && unsubscribe();
   }, [running]);
 
-  // Simplified physics loop
+  // keep numeric player position updated
   useEffect(() => {
-    if (!running) {
-      if (gameLoopRef.current) {
-        clearInterval(gameLoopRef.current);
-        gameLoopRef.current = null;
-      }
-      return;
-    }
-
-    // gravity and obstacle spawner
-    gameLoopRef.current = setInterval(() => {
-      // apply gravity
-      Animated.timing(playerY, { toValue: Math.min(SCREEN_H - 80, playerYNumeric.current + 4), duration: 100, useNativeDriver: false }).start();
-      // spawn obstacles every 2s (approx)
-      setTick(t => t + 1);
-    }, 100);
-
-    return () => {
-      if (gameLoopRef.current) clearInterval(gameLoopRef.current);
-    };
-  }, [running]);
-
-  // keep numeric playerY updated
-  useEffect(() => {
-    const listener = playerY.addListener(({ value }) => (playerYNumeric.current = value));
-    return () => playerY.removeListener(listener);
+    const id = playerY.addListener(({ value }) => (playerYNumeric.current = value));
+    return () => playerY.removeListener(id);
   }, []);
 
-  // manage obstacles based on tick
-  useEffect(() => {
-    if (!running) return;
-    if (tick % 20 === 0) {
-      const gap = 120;
-      const topHeight = 50 + Math.random() * (SCREEN_H - gap - 200);
-      const obs = {
-        x: new Animated.Value(SCREEN_W),
-        top: topHeight,
-        id: Date.now(),
-        xNumeric: SCREEN_W,
-      };
-      obstacles.current.push(obs);
-      // keep numeric updated via listener
-      const xListener = obs.x.addListener(({ value }) => (obs.xNumeric = value));
-      Animated.timing(obs.x, { toValue: -100, duration: 4000, useNativeDriver: false }).start(() => {
-        obs.x.removeListener(xListener);
-        obstacles.current = obstacles.current.filter(o => o.id !== obs.id);
-        setScore(s => s + 1);
-      });
-    }
-  }, [tick]);
-
-  // simple collision detection
-  useEffect(() => {
-    const collInterval = setInterval(() => {
-      const py = playerYNumeric.current;
-      for (const o of obstacles.current) {
-        const ox = o.xNumeric;
-        if (ox < 100 && ox > 10) {
-          // check if in gap
-          const gapTop = o.top;
-          if (py < gapTop || py > gapTop + 120) {
-            // collision
-            stopGame();
-            return;
-          }
-        }
-      }
-    }, 100);
-    return () => clearInterval(collInterval);
-  }, [running]);
+  function resetGame() {
+    // clear obstacles
+    obstacles.current.forEach(o => {
+      try { if (o.x && o.unsubscribe) o.unsubscribe(); } catch (e) {}
+    });
+    obstacles.current = [];
+    setScore(0);
+    velocity.current = 0;
+    playerY.setValue(GAME_HEIGHT / 2);
+    playerYNumeric.current = GAME_HEIGHT / 2;
+  }
 
   function startGame() {
-    setScore(0);
-    obstacles.current = [];
-    playerY.setValue(SCREEN_H / 2);
-    playerYNumeric.current = SCREEN_H / 2;
+    resetGame();
     setRunning(true);
+
+    // main physics loop ~60fps
+    loopTimer.current = setInterval(() => {
+      // integrate
+      velocity.current += gravity;
+      let newY = playerYNumeric.current + velocity.current;
+      if (newY > GAME_HEIGHT - PLAYER_SIZE) {
+        newY = GAME_HEIGHT - PLAYER_SIZE;
+        velocity.current = 0;
+      }
+      if (newY < 0) {
+        newY = 0;
+        velocity.current = 0;
+      }
+      playerY.setValue(newY);
+
+      // move obstacles and collision
+      for (let i = obstacles.current.length - 1; i >= 0; i--) {
+        const o = obstacles.current[i];
+        o.xNumeric -= 3.2; // speed
+        o.x.setValue(o.xNumeric);
+
+        // check for scoring when passed player
+        if (!o.passed && o.xNumeric + PIPE_WIDTH < 40) {
+          o.passed = true;
+          setScore(s => s + 1);
+        }
+
+        // collision check: player's box
+        const px = 40;
+        const py = playerYNumeric.current;
+        const pw = PLAYER_SIZE;
+        const ph = PLAYER_SIZE;
+
+        const ox = o.xNumeric;
+        const gapTop = o.top;
+        // top pipe rect
+        const tRect = { x: ox, y: 0, w: PIPE_WIDTH, h: gapTop };
+        const bRect = { x: ox, y: gapTop + GAP, w: PIPE_WIDTH, h: GAME_HEIGHT - (gapTop + GAP) };
+
+        if (rectsIntersect({ x: px, y: py, w: pw, h: ph }, tRect) || rectsIntersect({ x: px, y: py, w: pw, h: ph }, bRect)) {
+          // collision
+          stopGame();
+        }
+
+        // remove off-screen obstacles
+        if (o.xNumeric < -PIPE_WIDTH) {
+          obstacles.current.splice(i, 1);
+        }
+      }
+    }, 16);
+
+    // spawn pipes every 1600ms
+    spawnTimer.current = setInterval(() => {
+      const top = 40 + Math.random() * (GAME_HEIGHT - GAP - 80);
+      const obs = { x: new Animated.Value(SCREEN_W), xNumeric: SCREEN_W, top, id: Date.now(), passed: false };
+      obs.unsubscribe = obs.x.addListener(({ value }) => (obs.xNumeric = value));
+      obstacles.current.push(obs);
+    }, 1600);
   }
 
-  async function stopGame() {
+  function stopGame() {
     setRunning(false);
-    // play collision sound if available
-    try {
-      // usamos WAVs generados por el script (start.wav, collision.wav, victory.wav)
-      const { sound } = await Audio.Sound.createAsync(require('../assets/sounds/collision.wav'));
-      await sound.playAsync();
-    } catch (e) {}
+    if (loopTimer.current) { clearInterval(loopTimer.current); loopTimer.current = null; }
+    if (spawnTimer.current) { clearInterval(spawnTimer.current); spawnTimer.current = null; }
+    // play collision sound
+    (async () => {
+      try {
+        const { sound } = await Audio.Sound.createAsync(require('../assets/sounds/collision.wav'));
+        await sound.playAsync();
+      } catch (e) {}
+    })();
   }
+
+  function doJump() {
+    velocity.current = jumpImpulse;
+  }
+
+  function rectsIntersect(a, b) {
+    return !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
+  }
+
+  // teardown
+  useEffect(() => {
+    return () => {
+      if (loopTimer.current) clearInterval(loopTimer.current);
+      if (spawnTimer.current) clearInterval(spawnTimer.current);
+    };
+  }, []);
 
   return (
     <View style={styles.container}>
-      <View style={styles.gameArea}>
-        <Animated.View style={[styles.player, { top: playerY }]} />
-        {obstacles.current.map(o => (
-          <Animated.View key={o.id} style={[styles.obstacleTop, { left: o.x, height: o.top }]} />
-        ))}
-        {obstacles.current.map(o => (
-          <Animated.View key={o.id + '-b'} style={[styles.obstacleBottom, { left: o.x, top: o.top + 120 }]} />
-        ))}
-      </View>
+      <Text style={styles.score}>Puntuación: {score}</Text>
+      <TouchableWithoutFeedback onPress={() => (running ? doJump() : startGame())}>
+        <View style={[styles.gameArea, { height: GAME_HEIGHT }]}>
+          {/* player */}
+          <Animated.View
+            style={[styles.player, { top: playerY, left: 40, width: PLAYER_SIZE, height: PLAYER_SIZE, borderRadius: PLAYER_SIZE / 2 }]}
+          />
+
+          {/* pipes */}
+          {obstacles.current.map(o => (
+            <React.Fragment key={o.id}>
+              <Animated.View style={[styles.pipeTop, { left: o.x, height: o.top, width: PIPE_WIDTH }]} />
+              <Animated.View style={[styles.pipeBottom, { left: o.x, top: o.top + GAP, width: PIPE_WIDTH }]} />
+            </React.Fragment>
+          ))}
+        </View>
+      </TouchableWithoutFeedback>
+
       <View style={styles.controls}>
-        {!running ? <Button title="Iniciar juego" onPress={startGame} /> : <Button title="Detener" onPress={stopGame} />}
-        <Text>Puntuación: {score}</Text>
+        {!running ? (
+          <Text style={styles.hint}>Toca la pantalla para iniciar y saltar</Text>
+        ) : (
+          <Text style={styles.hint}>Toca para saltar</Text>
+        )}
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { height: 300 },
-  gameArea: { flex: 1, backgroundColor: '#cfe9ff', overflow: 'hidden' },
-  player: { position: 'absolute', left: 40, width: 30, height: 30, backgroundColor: '#ffcc00', borderRadius: 6 },
-  obstacleTop: { position: 'absolute', width: 60, backgroundColor: '#2e7d32', top: 0 },
-  obstacleBottom: { position: 'absolute', width: 60, backgroundColor: '#2e7d32' },
-  controls: { marginTop: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  container: { flex: 1 },
+  gameArea: { backgroundColor: '#d9f0ff', margin: 12, borderRadius: 6, overflow: 'hidden' },
+  player: { position: 'absolute', backgroundColor: '#ffcc00', borderWidth: 2, borderColor: '#c98f00' },
+  pipeTop: { position: 'absolute', backgroundColor: '#2e7d32', top: 0 },
+  pipeBottom: { position: 'absolute', backgroundColor: '#2e7d32' },
+  controls: { paddingHorizontal: 12, paddingTop: 8 },
+  score: { position: 'absolute', right: 24, top: 8, zIndex: 10, fontSize: 16, fontWeight: '700' },
+  hint: { fontSize: 16, color: '#333' },
 });
