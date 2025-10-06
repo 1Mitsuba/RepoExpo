@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, Animated, Dimensions, TouchableWithoutFeedback } from 'react-native';
-import { subscribeAccelerometer, isAccelerometerAvailable } from '../utils/sensors';
+import { DeviceMotion } from 'expo-sensors';
 import { Audio } from 'expo-av';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
@@ -32,31 +32,69 @@ export default function FlappyBirdGame() {
     pipesRef.current = pipes;
   }, [pipes]);
 
-  // accelerometer for optional jump
-  useEffect(() => {
-    let unsubscribe = null;
-    (async () => {
-      const avail = await isAccelerometerAvailable();
-      if (!avail) return;
-      unsubscribe = subscribeAccelerometer(({ x, y, z }) => {
-        // tilt upward (y negative) triggers a jump if running
-        if (!running) return;
-        const now = Date.now();
-        if (y < -0.9 && now - accelCooldown.current > 400) {
-          doJump();
-          accelCooldown.current = now;
-        }
-      }, 60);
-    })();
+  // NOTE: prefer DeviceMotion (orientation) for controls.
 
-    return () => unsubscribe && unsubscribe();
-  }, [running]);
+  // DeviceMotion-based orientation control (use device rotation/giro)
+  useEffect(() => {
+    let sub = null;
+    const thresholdDeg = 12; // degrees to trigger
+    const interval = 60;
+
+    const startDeviceMotion = async () => {
+      try {
+        DeviceMotion.setUpdateInterval(interval);
+        sub = DeviceMotion.addListener((data) => {
+          if (!running) return;
+          if (!data || !data.rotation) return;
+          const now = Date.now();
+          const gamma = data.rotation.gamma || 0; // roll (radians)
+          const beta = data.rotation.beta || 0; // pitch (radians)
+          const gammaDeg = gamma * (180 / Math.PI);
+          const betaDeg = beta * (180 / Math.PI);
+
+          // Prefer roll (gamma) for right/left device rotation control.
+          // Right rotation -> positive gammaDeg -> jump
+          if (gammaDeg > thresholdDeg && now - accelCooldown.current > 300) {
+            doJump();
+            accelCooldown.current = now;
+            return;
+          }
+
+          // Left rotation -> negative gammaDeg -> quick drop
+          if (gammaDeg < -thresholdDeg && now - accelCooldown.current > 300) {
+            velocity.current += 6;
+            accelCooldown.current = now;
+            return;
+          }
+
+          // As fallback, if device is pitched strongly forward/back (beta), apply small adjustments
+          if (betaDeg > 20 && now - accelCooldown.current > 400) {
+            // pitched forward -> go down
+            velocity.current += 4;
+            accelCooldown.current = now;
+          } else if (betaDeg < -20 && now - accelCooldown.current > 400) {
+            // pitched back -> small jump
+            doJump();
+            accelCooldown.current = now;
+          }
+        });
+      } catch (_e) {
+        // ignore if not available
+      }
+    };
+
+    if (running) startDeviceMotion();
+
+    return () => {
+      if (sub) sub.remove();
+    };
+  }, [running, doJump]);
 
   // keep numeric player position updated
   useEffect(() => {
     const id = playerY.addListener(({ value }) => (playerYNumeric.current = value));
     return () => playerY.removeListener(id);
-  }, []);
+  }, [playerY]);
 
   function resetGame() {
     // clear pipes
@@ -162,9 +200,9 @@ export default function FlappyBirdGame() {
     })();
   }
 
-  function doJump() {
+  const doJump = useCallback(() => {
     velocity.current = jumpImpulse;
-  }
+  }, [jumpImpulse]);
 
   function rectsIntersect(a, b) {
     return !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
@@ -192,7 +230,7 @@ export default function FlappyBirdGame() {
           {pipes.map(o => (
             <React.Fragment key={o.id}>
               <Animated.View style={[styles.pipeTop, { left: o.x, height: o.top, width: PIPE_WIDTH }]} />
-              <Animated.View style={[styles.pipeBottom, { left: o.x, top: o.top + GAP, width: PIPE_WIDTH }]} />
+              <Animated.View style={[styles.pipeBottom, { left: o.x, top: o.top + GAP, width: PIPE_WIDTH, height: GAME_HEIGHT - (o.top + GAP) }]} />
             </React.Fragment>
           ))}
         </View>
