@@ -36,6 +36,7 @@ export default function FlappyBirdGame() {
   const lastControlRef = useRef(null);
   const lastControlTimeRef = useRef(null);
   const [controlMode, setControlMode] = useState('giro'); // 'giro' or 'inclinacion'
+  const [useHomeDirection, setUseHomeDirection] = useState(false);
 
   const [running, setRunning] = useState(false);
   const [pipes, setPipes] = useState([]);
@@ -81,7 +82,15 @@ export default function FlappyBirdGame() {
           // normalize to -180..180
           if (delta > 180) delta -= 360;
           if (delta < -180) delta += 360;
-          orientationRef.current = delta;
+          if (useHomeDirection) {
+            // discrete mapping like Home's DirectionDetector
+            const thresh = 8; // degrees
+            if (delta > thresh) orientationRef.current = 20;
+            else if (delta < -thresh) orientationRef.current = -20;
+            else orientationRef.current = 0;
+          } else {
+            orientationRef.current = delta;
+          }
 
           // compute angular velocity (deg/s) for quick-rotation detection
           try {
@@ -122,7 +131,7 @@ export default function FlappyBirdGame() {
       lastControlRef.current = null;
       lastControlTimeRef.current = null;
     };
-  }, [running, doJump, flickToJump, controlMode, baselineAvg]);
+  }, [running, doJump, flickToJump, controlMode, baselineAvg, useHomeDirection]);
 
   // keep numeric player position updated
   useEffect(() => {
@@ -383,6 +392,10 @@ export default function FlappyBirdGame() {
         <View style={styles.tuneRow}>
           <Text style={styles.tuneLabel}>Modo control:</Text>
           <Text onPress={() => setControlMode(m => (m === 'giro' ? 'inclinacion' : 'giro'))} style={[styles.tuneBtn]}>{controlMode === 'giro' ? 'Giro' : 'Inclinación'}</Text>
+        </View>
+        <View style={styles.tuneRow}> 
+          <Text style={styles.tuneLabel}>Usar control tipo Home:</Text>
+          <Text onPress={() => setUseHomeDirection(u => !u)} style={[styles.tuneBtn, useHomeDirection ? styles.btnActive : null]}>{useHomeDirection ? 'ON' : 'OFF'}</Text>
         </View>
         <View style={styles.tuneRow}> 
           <Text style={styles.tuneLabel}>Shake to Jump:</Text>
