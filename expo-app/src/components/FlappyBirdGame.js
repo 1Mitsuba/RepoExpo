@@ -27,6 +27,7 @@ export default function FlappyBirdGame() {
   const [orientAccelScale, setOrientAccelScale] = useState(ORIENT_ACCEL);
   const [invertControl, setInvertControl] = useState(false);
   const [baselineAvg, setBaselineAvg] = useState(true);
+  const [calibrating, setCalibrating] = useState(false);
   const [shakeToJump, setShakeToJump] = useState(false);
   const shakeCooldownRef = useRef(false);
   const accelSubRef = useRef(null);
@@ -69,10 +70,10 @@ export default function FlappyBirdGame() {
           const betaDeg = beta * (180 / Math.PI);
           // choose axis based on controlMode
           const valDeg = controlMode === 'inclinacion' ? betaDeg : alphaDeg;
-          // On some devices alpha wraps 0..360 (rad), normalize by baseline captured at game start
-          // If baselineAvg is enabled, baseline will be filled by startGame's averaging logic
-          if (orientationBaseline.current === null) {
-            // fallback: if baseline not captured yet, use this reading as baseline
+          // On some devices alpha wraps 0..360 (rad). If baselineAvg is enabled
+          // we DO NOT capture baseline here — baseline will be set by the averaging routine.
+          if (orientationBaseline.current === null && !baselineAvg) {
+            // fallback: if baseline not captured yet and not averaging, use this reading as baseline
             orientationBaseline.current = valDeg;
           }
           // positive delta means rotated to the right (clockwise looking from top)
@@ -121,7 +122,7 @@ export default function FlappyBirdGame() {
       lastControlRef.current = null;
       lastControlTimeRef.current = null;
     };
-  }, [running, doJump, flickToJump, controlMode]);
+  }, [running, doJump, flickToJump, controlMode, baselineAvg]);
 
   // keep numeric player position updated
   useEffect(() => {
@@ -231,6 +232,7 @@ export default function FlappyBirdGame() {
     // optionally compute baseline average for N readings to stabilize control
     if (baselineAvg) {
       // collect readings for ~600ms at 60ms interval
+      setCalibrating(true);
       const samples = [];
       let subAvg = null;
       const avgInterval = 60;
@@ -239,7 +241,11 @@ export default function FlappyBirdGame() {
         subAvg = DeviceMotion.addListener((data) => {
           if (!data || !data.rotation) return;
           const alpha = typeof data.rotation.alpha === 'number' ? data.rotation.alpha : 0;
-          samples.push(alpha * (180 / Math.PI));
+          const beta = typeof data.rotation.beta === 'number' ? data.rotation.beta : 0;
+          const alphaDeg = alpha * (180 / Math.PI);
+          const betaDeg = beta * (180 / Math.PI);
+          const valDeg = controlMode === 'inclinacion' ? betaDeg : alphaDeg;
+          samples.push(valDeg);
         });
       } catch (_e) {}
       // after 600ms compute baseline and continue
@@ -250,6 +256,7 @@ export default function FlappyBirdGame() {
         } else {
           orientationBaseline.current = null;
         }
+        setCalibrating(false);
         if (subAvg) subAvg.remove();
         last = Date.now();
         loopTimer.current = requestAnimationFrame(loop);
@@ -295,6 +302,7 @@ export default function FlappyBirdGame() {
     })();
     // stop accel listener
     try { if (accelSubRef.current) { accelSubRef.current.remove(); accelSubRef.current = null; } } catch (_e) {}
+    setCalibrating(false);
   }
 
   const doJump = useCallback(() => {
@@ -346,6 +354,7 @@ export default function FlappyBirdGame() {
         ) : (
           <Text style={styles.hint}>Toca para saltar</Text>
         )}
+        {calibrating && <Text style={[styles.hint, { color: '#d32f2f' }]}>Calibrando posición...</Text>}
       </View>
 
       {/* live tuning controls */}
