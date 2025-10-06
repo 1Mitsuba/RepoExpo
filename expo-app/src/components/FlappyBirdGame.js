@@ -32,8 +32,9 @@ export default function FlappyBirdGame() {
   const accelSubRef = useRef(null);
   const [flickToJump, setFlickToJump] = useState(false);
   const flickCooldownRef = useRef(false);
-  const lastAlphaRef = useRef(null);
-  const lastAlphaTimeRef = useRef(null);
+  const lastControlRef = useRef(null);
+  const lastControlTimeRef = useRef(null);
+  const [controlMode, setControlMode] = useState('giro'); // 'giro' or 'inclinacion'
 
   const [running, setRunning] = useState(false);
   const [pipes, setPipes] = useState([]);
@@ -63,15 +64,19 @@ export default function FlappyBirdGame() {
           // Use rotation.alpha (yaw) for true "giro"/rotación alrededor del eje Z
           // alpha is in radians; convert to degrees
           const alpha = typeof data.rotation.alpha === 'number' ? data.rotation.alpha : 0;
+          const beta = typeof data.rotation.beta === 'number' ? data.rotation.beta : 0;
           const alphaDeg = alpha * (180 / Math.PI);
+          const betaDeg = beta * (180 / Math.PI);
+          // choose axis based on controlMode
+          const valDeg = controlMode === 'inclinacion' ? betaDeg : alphaDeg;
           // On some devices alpha wraps 0..360 (rad), normalize by baseline captured at game start
           // If baselineAvg is enabled, baseline will be filled by startGame's averaging logic
           if (orientationBaseline.current === null) {
             // fallback: if baseline not captured yet, use this reading as baseline
-            orientationBaseline.current = alphaDeg;
+            orientationBaseline.current = valDeg;
           }
           // positive delta means rotated to the right (clockwise looking from top)
-          let delta = alphaDeg - orientationBaseline.current;
+          let delta = valDeg - orientationBaseline.current;
           // normalize to -180..180
           if (delta > 180) delta -= 360;
           if (delta < -180) delta += 360;
@@ -80,11 +85,10 @@ export default function FlappyBirdGame() {
           // compute angular velocity (deg/s) for quick-rotation detection
           try {
             const now = Date.now();
-            if (lastAlphaRef.current !== null && lastAlphaTimeRef.current) {
-              const dt = (now - lastAlphaTimeRef.current) / 1000; // seconds
+            if (lastControlRef.current !== null && lastControlTimeRef.current) {
+              const dt = (now - lastControlTimeRef.current) / 1000; // seconds
               if (dt > 0) {
-                // raw delta between consecutive alpha readings
-                let rawDelta = alphaDeg - lastAlphaRef.current;
+                let rawDelta = valDeg - lastControlRef.current;
                 if (rawDelta > 180) rawDelta -= 360;
                 if (rawDelta < -180) rawDelta += 360;
                 const angVel = rawDelta / dt; // deg/s
@@ -96,8 +100,8 @@ export default function FlappyBirdGame() {
                 }
               }
             }
-            lastAlphaRef.current = alphaDeg;
-            lastAlphaTimeRef.current = now;
+            lastControlRef.current = valDeg;
+            lastControlTimeRef.current = now;
           } catch (_e) {}
         });
       } catch (_e) {
@@ -113,10 +117,11 @@ export default function FlappyBirdGame() {
 
     return () => {
       if (sub) sub.remove();
-      lastAlphaRef.current = null;
-      lastAlphaTimeRef.current = null;
+      // clear last control trackers
+      lastControlRef.current = null;
+      lastControlTimeRef.current = null;
     };
-  }, [running, doJump, flickToJump]);
+  }, [running, doJump, flickToJump, controlMode]);
 
   // keep numeric player position updated
   useEffect(() => {
@@ -240,8 +245,8 @@ export default function FlappyBirdGame() {
       // after 600ms compute baseline and continue
       setTimeout(() => {
         if (samples.length > 0) {
-          const sum = samples.reduce((a, b) => a + b, 0);
-          orientationBaseline.current = sum / samples.length;
+            const sum = samples.reduce((a, b) => a + b, 0);
+            orientationBaseline.current = sum / samples.length;
         } else {
           orientationBaseline.current = null;
         }
@@ -365,6 +370,10 @@ export default function FlappyBirdGame() {
         <View style={styles.tuneRow}> 
           <Text style={styles.tuneLabel}>Baseline Avg:</Text>
           <Text onPress={() => setBaselineAvg(b => !b)} style={[styles.tuneBtn, baselineAvg ? styles.btnActive : null]}>{baselineAvg ? 'ON' : 'OFF'}</Text>
+        </View>
+        <View style={styles.tuneRow}>
+          <Text style={styles.tuneLabel}>Modo control:</Text>
+          <Text onPress={() => setControlMode(m => (m === 'giro' ? 'inclinacion' : 'giro'))} style={[styles.tuneBtn]}>{controlMode === 'giro' ? 'Giro' : 'Inclinación'}</Text>
         </View>
         <View style={styles.tuneRow}> 
           <Text style={styles.tuneLabel}>Shake to Jump:</Text>
