@@ -77,18 +77,40 @@ export default function DecibelMeter() {
   const displayDb = Math.round(dB + 60);
 
   return (
-    <View>
+    <View style={styles.container}>
       <Text style={styles.dbText}>Nivel: {displayDb} dB</Text>
       <View style={styles.barBg}>
         <Animated.View style={[styles.barFill, { width }]} />
       </View>
-      {!permission && <Text>Permiso de micrófono no otorgado.</Text>}
+      {!permission && <Text style={styles.warning}>Permiso de micrófono no otorgado.</Text>}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  dbText: { fontSize: 18, fontWeight: '600', marginBottom: 6 },
-  barBg: { height: 18, backgroundColor: '#eee', borderRadius: 9, overflow: 'hidden' },
-  barFill: { height: 18, backgroundColor: '#4caf50' },
+  container: {
+    backgroundColor: '#e8f5e9', // Verde muy claro consistente
+    borderRadius: 8,
+    padding: 10,
+  },
+  dbText: { 
+    fontSize: 18, 
+    fontWeight: '600', 
+    marginBottom: 6,
+    color: '#2e7d32' // Verde oscuro para texto
+  },
+  barBg: { 
+    height: 18, 
+    backgroundColor: '#a5d6a7', // Verde claro para fondo de barra
+    borderRadius: 9, 
+    overflow: 'hidden' 
+  },
+  barFill: { 
+    height: 18, 
+    backgroundColor: '#388e3c' // Verde más intenso para la barra
+  },
+  warning: {
+    color: '#00600f', // Verde oscuro para advertencias
+    marginTop: 6
+  }
 });

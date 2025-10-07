@@ -41,6 +41,15 @@ export default function DirectionDetector() {
 }
 
 const styles = StyleSheet.create({
-  container: { paddingVertical: 8 },
-  text: { fontSize: 20, fontWeight: '600' },
+  container: { 
+    paddingVertical: 8,
+    backgroundColor: '#e8f5e9', // Verde muy claro consistente con tema
+    borderRadius: 8,
+    padding: 10
+  },
+  text: { 
+    fontSize: 20, 
+    fontWeight: '600', 
+    color: '#2e7d32' // Verde oscuro para texto
+  },
 });

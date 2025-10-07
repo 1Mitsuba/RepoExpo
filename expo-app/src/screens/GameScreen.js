@@ -11,5 +11,5 @@ export default function GameScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 12, backgroundColor: '#f7f7f7' },
+  container: { flex: 1, padding: 12, backgroundColor: '#edf7ed' }, // Verde muy claro como el resto del tema
 });

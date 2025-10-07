@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, Button, StyleSheet } from 'react-native';
-import * as Permissions from 'expo-permissions';
 import { subscribeAccelerometer, isAccelerometerAvailable } from '../utils/sensors';
 
 // Contador de pasos simple: detecta picos en el eje Z
@@ -34,21 +33,27 @@ export default function StepCounter() {
   }, []);
 
   return (
-    <View>
+    <View style={styles.container}>
       <Text style={styles.stepsText}>Pasos: {steps}</Text>
       {!available && (
-        <Button title="Contar paso (manual)" onPress={() => setSteps(s => s + 1)} />
+        <Button title="Contar paso (manual)" color="#43a047" onPress={() => setSteps(s => s + 1)} />
       )}
       <View style={{height:8}} />
-      <Button title="Reiniciar" onPress={() => setSteps(0)} />
+      <Button title="Reiniciar" color="#388e3c" onPress={() => setSteps(0)} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    backgroundColor: '#e8f5e9', // Verde muy claro consistente
+    borderRadius: 8,
+    padding: 10,
+  },
   stepsText: {
     fontSize: 28,
     fontWeight: '700',
     marginBottom: 8,
+    color: '#2e7d32', // Verde oscuro para texto
   },
 });

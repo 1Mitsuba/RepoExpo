@@ -8,8 +8,8 @@ const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 export default function FlappyBirdGame() {
   const GAME_HEIGHT = Math.round(SCREEN_H * 0.6);
   const PLAYER_SIZE = 36;
-  const PIPE_WIDTH = PLAYER_SIZE; // make pipes roughly the same width as the player for better fairness
-  const GAP = 140; // gap between pipes
+  const PIPE_WIDTH = PLAYER_SIZE; // hacer las tuberías del ancho del jugador para juego más justo
+  const GAP = 140; // hueco entre tuberías
   const SPAWN_INTERVAL = 1600; // ms
   const PIPE_SPEED = 180; // px per second
 
@@ -20,6 +20,8 @@ export default function FlappyBirdGame() {
   const jumpImpulse = -9.5;
   const orientationRef = useRef(0); // degrees
   const orientationBaseline = useRef(null);
+  const deviceMotionSubRef = useRef(null);
+  const deviceMotionAvgRef = useRef(null);
   const ORIENT_ACCEL = 900; // px/s^2 applied from device rotation (higher default for snappier control)
 
   // live-tunable settings (made stateful so user can adjust in UI)
@@ -39,6 +41,7 @@ export default function FlappyBirdGame() {
   const [useHomeDirection, setUseHomeDirection] = useState(false);
 
   const [running, setRunning] = useState(false);
+  const [displayOrientation, setDisplayOrientation] = useState(0);
   const [pipes, setPipes] = useState([]);
   const pipesRef = useRef(pipes);
   const [score, setScore] = useState(0);
@@ -50,7 +53,7 @@ export default function FlappyBirdGame() {
     pipesRef.current = pipes;
   }, [pipes]);
 
-  // NOTE: prefer DeviceMotion (orientation) for controls.
+  // Usamos DeviceMotion (rotación) para controles cuando esté disponible.
 
   // DeviceMotion-based orientation control (use device rotation/giro)
   useEffect(() => {
@@ -63,21 +66,21 @@ export default function FlappyBirdGame() {
         sub = DeviceMotion.addListener((data) => {
           if (!running) return;
           if (!data || !data.rotation) return;
-          // Use rotation.alpha (yaw) for true "giro"/rotación alrededor del eje Z
-          // alpha is in radians; convert to degrees
+          // Usar rotation.alpha (yaw) para el "giro" alrededor del eje Z
+          // alpha está en radianes; convertir a grados
           const alpha = typeof data.rotation.alpha === 'number' ? data.rotation.alpha : 0;
           const beta = typeof data.rotation.beta === 'number' ? data.rotation.beta : 0;
           const alphaDeg = alpha * (180 / Math.PI);
           const betaDeg = beta * (180 / Math.PI);
-          // choose axis based on controlMode
+          // elegir eje según modo de control
           const valDeg = controlMode === 'inclinacion' ? betaDeg : alphaDeg;
-          // On some devices alpha wraps 0..360 (rad). If baselineAvg is enabled
-          // we DO NOT capture baseline here — baseline will be set by the averaging routine.
+          // en algunos dispositivos alpha puede envolver 0..360; la baseline se fija
+          // en la rutina de calibración (baselineAvg)
           if (orientationBaseline.current === null && !baselineAvg) {
             // fallback: if baseline not captured yet and not averaging, use this reading as baseline
             orientationBaseline.current = valDeg;
           }
-          // positive delta means rotated to the right (clockwise looking from top)
+          // delta positivo = rotado a la derecha
           let delta = valDeg - orientationBaseline.current;
           // normalize to -180..180
           if (delta > 180) delta -= 360;
@@ -91,6 +94,9 @@ export default function FlappyBirdGame() {
           } else {
             orientationRef.current = delta;
           }
+
+          // actualizar estado para que la UI muestre el giro actual
+          try { setDisplayOrientation(Math.round(orientationRef.current)); } catch (_e) {}
 
           // compute angular velocity (deg/s) for quick-rotation detection
           try {
@@ -114,6 +120,8 @@ export default function FlappyBirdGame() {
             lastControlTimeRef.current = now;
           } catch (_e) {}
         });
+        // store ref so stopGame can remove it
+        deviceMotionSubRef.current = sub;
       } catch (_e) {
         // ignore if not available
       }
@@ -127,6 +135,7 @@ export default function FlappyBirdGame() {
 
     return () => {
       if (sub) sub.remove();
+      if (deviceMotionSubRef.current) { try { deviceMotionSubRef.current.remove(); } catch (_e) {} deviceMotionSubRef.current = null; }
       // clear last control trackers
       lastControlRef.current = null;
       lastControlTimeRef.current = null;
@@ -150,8 +159,11 @@ export default function FlappyBirdGame() {
     playerY.setValue(GAME_HEIGHT / 2);
     playerYNumeric.current = GAME_HEIGHT / 2;
     // clear orientation so next run starts neutral
+    // set the current device pose as the new zero (center of the screen)
+    const currentPose = lastControlRef.current != null ? lastControlRef.current : 0;
+    orientationBaseline.current = currentPose;
     orientationRef.current = 0;
-    orientationBaseline.current = null;
+    setDisplayOrientation(0);
   }
 
   function startGame() {
@@ -165,19 +177,27 @@ export default function FlappyBirdGame() {
       const dt = (now - last) / 1000; // seconds
       last = now;
 
-      // integrate physics (velocity in px/sec)
-      // apply gravity
+      // integrar física (velocidad en px/s)
+      // aplicar gravedad
       velocity.current += gravity * dt;
-  // orientation control: orientationRef.current in degrees; positive = rotated right
-  const orient = orientationRef.current || 0;
-  // map orientation to vertical acceleration: positive orient => upward acceleration
-  // Note: y increases downward in screen coords, so upward acceleration is negative velocity change
-  const sens = sensitivity; // degrees that produce full effect
-  const baseAccel = orientAccelScale;
-  const sign = invertControl ? 1 : -1;
-  const orientAccel = sign * (orient / sens) * baseAccel; // tuned mapping
-      velocity.current += orientAccel * dt;
-      let newY = playerYNumeric.current + velocity.current * dt;
+      // control suave basado en orientación:
+      // en lugar de aplicar una gran aceleración instantánea, calculamos una
+      // posición objetivo cercana al centro vertical y movemos suavemente el
+      // jugador hacia ella. Así, un pequeño giro hace un pequeño desplazamiento.
+      const orient = orientationRef.current || 0;
+      // por defecto: girar a la derecha debe bajar al jugador; si invertControl
+      // está activo, revertimos el sentido
+      const sign = invertControl ? -1 : 1;
+      const sens = Math.max(6, sensitivity);
+      const maxOffset = GAME_HEIGHT * 0.35; // 35% del área de juego
+      const targetY = GAME_HEIGHT / 2 + (orient / sens) * maxOffset * sign;
+
+      // posición resultado de la física (gravedad/impulso)
+      const posFromVel = playerYNumeric.current + velocity.current * dt;
+
+      // mezclar suavemente hacia la posición objetivo (blend controla rapidez)
+      const blend = Math.min(1, 6 * dt);
+      let newY = posFromVel + (targetY - posFromVel) * blend;
       if (newY > GAME_HEIGHT - PLAYER_SIZE) {
         newY = GAME_HEIGHT - PLAYER_SIZE;
         velocity.current = 0;
@@ -255,7 +275,10 @@ export default function FlappyBirdGame() {
           const betaDeg = beta * (180 / Math.PI);
           const valDeg = controlMode === 'inclinacion' ? betaDeg : alphaDeg;
           samples.push(valDeg);
+          // also update display during calibration so user sees feedback
+          setDisplayOrientation(Math.round(valDeg - (orientationBaseline.current || 0)));
         });
+        deviceMotionAvgRef.current = subAvg;
       } catch (_e) {}
       // after 600ms compute baseline and continue
       setTimeout(() => {
@@ -266,7 +289,7 @@ export default function FlappyBirdGame() {
           orientationBaseline.current = null;
         }
         setCalibrating(false);
-        if (subAvg) subAvg.remove();
+        if (subAvg) { try { subAvg.remove(); } catch (_e) {} deviceMotionAvgRef.current = null; }
         last = Date.now();
         loopTimer.current = requestAnimationFrame(loop);
         spawnTimer.current = setInterval(spawnPipe, SPAWN_INTERVAL);
@@ -300,9 +323,15 @@ export default function FlappyBirdGame() {
     if (loopTimer.current) { cancelAnimationFrame(loopTimer.current); loopTimer.current = null; }
     if (spawnTimer.current) { clearInterval(spawnTimer.current); spawnTimer.current = null; }
     // play collision sound
-    // clear orientation when game stops to avoid jumpy state
-    orientationRef.current = 0;
-    orientationBaseline.current = null;
+    // clear orientation when game stops to avoid jumpy state - force display to zero
+  // make the device's current pose the new zero so the screen center becomes 0°
+  const currentPose = lastControlRef.current != null ? lastControlRef.current : 0;
+  orientationBaseline.current = currentPose;
+  orientationRef.current = 0;
+  setDisplayOrientation(0);
+    // remove DeviceMotion listeners if any
+    try { if (deviceMotionSubRef.current) { deviceMotionSubRef.current.remove(); deviceMotionSubRef.current = null; } } catch (_e) {}
+    try { if (deviceMotionAvgRef.current) { deviceMotionAvgRef.current.remove(); deviceMotionAvgRef.current = null; } } catch (_e) {}
     (async () => {
       try {
         const { sound } = await Audio.Sound.createAsync(require('../assets/sounds/collision.wav'));
@@ -337,9 +366,9 @@ export default function FlappyBirdGame() {
         <View style={[styles.gameArea, { height: GAME_HEIGHT }]}>
           {/* rotation indicator */}
           <View style={styles.rotationIndicator} pointerEvents="none">
-            <Text style={styles.rotationText}>Giro: {Math.round(orientationRef.current)}°</Text>
+            <Text style={styles.rotationText}>Giro: {displayOrientation}°</Text>
             <View style={styles.rotBarBg}>
-              <View style={[styles.rotBarFill, { width: `${Math.min(100, Math.abs(Math.round(orientationRef.current))) * 1}%` }]} />
+              <View style={[styles.rotBarFill, { width: `${Math.min(100, Math.abs(displayOrientation))}%` }]} />
             </View>
           </View>
           {/* player */}
@@ -363,7 +392,7 @@ export default function FlappyBirdGame() {
         ) : (
           <Text style={styles.hint}>Toca para saltar</Text>
         )}
-        {calibrating && <Text style={[styles.hint, { color: '#d32f2f' }]}>Calibrando posición...</Text>}
+        {calibrating && <Text style={[styles.hint, { color: '#00600f' }]}>Calibrando posición...</Text>}
       </View>
 
       {/* live tuning controls */}
@@ -411,21 +440,21 @@ export default function FlappyBirdGame() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  gameArea: { backgroundColor: '#d9f0ff', margin: 12, borderRadius: 6, overflow: 'hidden' },
+  container: { flex: 1, backgroundColor: '#edf7ed' }, // fondo verde muy claro para toda la app
+  gameArea: { backgroundColor: '#c8e6c9', margin: 12, borderRadius: 6, overflow: 'hidden' }, // verde pastel para área de juego
   rotationIndicator: { position: 'absolute', left: 8, top: 8, zIndex: 20, backgroundColor: 'rgba(255,255,255,0.8)', padding: 6, borderRadius: 6 },
-  rotationText: { fontSize: 12, fontWeight: '700' },
-  rotBarBg: { height: 6, backgroundColor: '#eee', borderRadius: 4, marginTop: 4, overflow: 'hidden' },
-  rotBarFill: { height: 6, backgroundColor: '#1976d2' },
-  tuning: { paddingHorizontal: 12, paddingVertical: 8 },
-  tuneLabel: { fontSize: 14, fontWeight: '700', marginBottom: 6 },
+  rotationText: { fontSize: 12, fontWeight: '700', color: '#2e7d32' }, // texto verde oscuro
+  rotBarBg: { height: 6, backgroundColor: '#a5d6a7', borderRadius: 4, marginTop: 4, overflow: 'hidden' }, // verde claro para fondo de barra
+  rotBarFill: { height: 6, backgroundColor: '#388e3c' }, // verde medio para barra de rotación
+  tuning: { paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#e8f5e9' }, // verde muy suave para controles
+  tuneLabel: { fontSize: 14, fontWeight: '700', marginBottom: 6, color: '#2e7d32' }, // verde oscuro para texto
   tuneRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  tuneBtn: { paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#eee', borderRadius: 6, marginHorizontal: 6 },
-  btnActive: { backgroundColor: '#1976d2', color: '#fff' },
-  player: { position: 'absolute', backgroundColor: '#ffcc00', borderWidth: 2, borderColor: '#c98f00' },
-  pipeTop: { position: 'absolute', backgroundColor: '#2e7d32', top: 0 },
-  pipeBottom: { position: 'absolute', backgroundColor: '#2e7d32' },
-  controls: { paddingHorizontal: 12, paddingTop: 8 },
-  score: { position: 'absolute', right: 24, top: 8, zIndex: 10, fontSize: 16, fontWeight: '700' },
-  hint: { fontSize: 16, color: '#333' },
+  tuneBtn: { paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#a5d6a7', borderRadius: 6, marginHorizontal: 6, color: '#1b5e20' }, // botón verde claro con texto oscuro
+  btnActive: { backgroundColor: '#43a047', color: '#fff' }, // verde más vivo para botón activo
+  player: { position: 'absolute', backgroundColor: '#66bb6a', borderWidth: 2, borderColor: '#2e7d32' }, // jugador verde
+  pipeTop: { position: 'absolute', backgroundColor: '#1b5e20', top: 0 }, // verde muy oscuro para tuberías
+  pipeBottom: { position: 'absolute', backgroundColor: '#1b5e20' }, // verde muy oscuro para tuberías
+  controls: { paddingHorizontal: 12, paddingTop: 8, backgroundColor: '#e8f5e9' }, // verde muy suave para área de controles
+  score: { position: 'absolute', right: 24, top: 8, zIndex: 10, fontSize: 16, fontWeight: '700', color: '#1b5e20' }, // score en verde oscuro
+  hint: { fontSize: 16, color: '#2e7d32' }, // hints en verde oscuro
 });
